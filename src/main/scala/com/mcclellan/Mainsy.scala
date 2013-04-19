@@ -12,19 +12,28 @@ import spray.http.HttpHeaders
 import spray.http.MediaTypes
 import spray.http.MediaRanges
 import spray.http.HttpBody
+import spray.routing.Directive
+import spray.httpx.marshalling.MetaMarshallers
+import spray.httpx.marshalling.Marshaller
+import spray.http.ContentType
+import spray.http.HttpEntity
 
 class Service extends Actor with HttpService {
+	lazy val fibs : Stream[BigInt] =0 #::
+                                1 #::
+                                fibs.zip(fibs.tail).map { n => n._1 + n._2 }
+	
+	val bigIntMarshaller = Marshaller.of[BigInt](ContentType.`text/plain`) { (value, contentType, ctx) =>
+		ctx.marshalTo(HttpBody(contentType,value.toString + " " ))
+	}
+	
 	def actorRefFactory = context
 
 	def receive = handleTimeouts orElse runRoute(
-		get {
+		get {  
 			path("ping") { ctx =>
-				println(ctx.request.queryParams)
-				ctx.complete(
-					HttpResponse(
-						status = StatusCodes.Conflict,
-						headers = HttpHeaders.Accept(MediaRanges.`application/*`) :: Nil,
-						entity = HttpBody(MediaTypes.`application/json`, "pong")))
+				implicit val marshaller : Marshaller[Stream[BigInt]] = Marshaller.streamMarshaller(bigIntMarshaller, actorRefFactory)
+				ctx.complete(StatusCodes.OK, Nil, fibs)
 			}
 		})
 
@@ -36,5 +45,5 @@ class Service extends Actor with HttpService {
 
 object Mainsy extends App with SprayCanHttpServerApp {
 	val me = system.actorOf(Props[Service])
-	newHttpServer(me) ! Bind(interface = "localhost", port = 8080)
+	newHttpServer(me) ! Bind(interface = "localhost", port = 8888)
 }
