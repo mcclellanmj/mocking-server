@@ -20,45 +20,60 @@ import spray.http.HttpEntity
 import java.io.File
 import scala.io.Source
 import scala.collection.mutable.MapBuilder
+import java.io.FileInputStream
+import java.io.BufferedInputStream
+import spray.httpx.marshalling.BasicMarshallers
 
-class FileAttributes {
-	private val builder = new MapBuilder[String, String, Map[String, String]](Map())
-	def addLine(line : String) = {
-		val List(key : String, value : String, rs) = line.split("=", 1).toList
-		assert(rs.isEmpty(), "Error, splitting line yielded more than one value. " +
-				"key = %s, value = %s, remaining = %s".format(key, value, rs))
-		builder += ((key, value))
+object MetadataFileDirectory {
+	private val Pattern = "(.*)\\.metadata$".r
+	def findReturnName(metaFilename : String, folder : File) : String = metaFilename match {
+		case Pattern(c) => {
+			val returnFiles = folder.listFiles.filter(file => file.getName.startsWith(c) && !file.getName.endsWith(".metadata")).map(_.getPath)
+			assert(returnFiles.size == 1, "Invalid number of files to return, found " + returnFiles + ". Ensure each metadata file only has one associated file")
+			returnFiles.head
+		}
+		case _ => throw new RuntimeException("Failed to find file for metadata file " + metaFilename)
 	}
 }
 
-class Files {
-	val metadataFiles = new File("~/MockImages/").listFiles().filter(_.getName().endsWith(".metadata"))
-	
-	metadataFiles.map(file => {
-		val attributes = new FileAttributes
-		Source.fromFile(file).getLines.foreach(line => {
-			attributes.addLine(line)
-		})
-		attributes
-	})
+class MetadataFileDirectory(val path : File) {
+	lazy val metadataFiles = path.listFiles().filter(_.getName().endsWith(".metadata")).map(file => {
+		(MetadataFileDirectory.findReturnName(file.getName(), path),
+			Source.fromFile(file).getLines.map(line => line.split("=", 2).toList match {
+				case key :: value :: Nil => (key.trim, value.trim)
+				case key :: Nil => throw new RuntimeException("Missing value for key " + key)
+				case key :: value :: rs => throw new RuntimeException("Parse of metadata failed, had too many values found for " +
+					"key %s, value %s, others %s".format(key, value, rs))
+				case Nil => throw new RuntimeException("Parse of metadata failed, had an empty list after splitting on '='")
+			}).toMap)
+	}).toMap
 }
 
 class Service extends Actor with HttpService {
-	lazy val fibs : Stream[BigInt] =0 #::
-                                1 #::
-                                fibs.zip(fibs.tail).map { n => n._1 + n._2 }
-	
+	lazy val metadataMaps = new MetadataFileDirectory(new File("c:\\Development\\metadata")).metadataFiles
 	val bigIntMarshaller = Marshaller.of[BigInt](ContentType.`text/plain`) { (value, contentType, ctx) =>
-		ctx.marshalTo(HttpBody(contentType,value.toString + " " ))
+		ctx.marshalTo(HttpBody(contentType, value.toString + " "))
 	}
 	
 	def actorRefFactory = context
 
 	def receive = handleTimeouts orElse runRoute(
-		get {  
+		get {
 			path("ping") { ctx =>
-				implicit val marshaller : Marshaller[Stream[BigInt]] = Marshaller.streamMarshaller(bigIntMarshaller, actorRefFactory)
-				ctx.complete(StatusCodes.OK, Nil, fibs)
+				val params = ctx.request.queryParams.toSet
+				metadataMaps.find(entry => {
+					val intersection = (entry._2.toSet intersect params)
+					intersection.size == entry._2.size && intersection.size == params.size 
+				}) match {
+					case Some((key, map)) => {
+						val bis = new BufferedInputStream(new FileInputStream(key))
+						ctx.complete(StatusCodes.OK, HttpHeaders.`Content-Disposition`("inline", Map("filename" -> key)) :: Nil, Stream.continually(bis.read).takeWhile(_ != -1).map(_.toByte).toArray)
+					}
+					case None => {
+						println("No mapping for " + params)
+						ctx.complete(StatusCodes.NotFound, Nil, "")
+					}
+				}
 			}
 		})
 
