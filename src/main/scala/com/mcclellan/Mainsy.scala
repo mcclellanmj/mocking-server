@@ -77,6 +77,7 @@ class Service extends Actor with HttpService {
 		get {
 			path("ping") { ctx =>
 				val params = ctx.request.queryParams.toSet
+				// FIXME: Getting messy, this needs to be broken up
 				metadataMaps.find(entry => entry match {
 					case (key, Metadata(headers, query)) => {
 						val intersection = (query.toSet intersect params)
@@ -87,14 +88,12 @@ class Service extends Actor with HttpService {
 						// TODO: Should eventually be a chunked stream response
 						val bis = new BufferedInputStream(new FileInputStream(key))
 						val bytes = Stream.continually(bis.read).takeWhile(_ != -1).map(_.toByte).toArray
-						entry match {
-							// If we have headers attach them to the response
-							case Metadata(Some(headers), _) => {
-								val parsedHeaders = headers.map(header => GenericHttpHeader(header.header, header.value))
-								ctx.complete(StatusCodes.OK, parsedHeaders.toList, bytes)
-							}
-							case _ => ctx.complete(StatusCodes.OK, Nil, bytes)
+						
+						val headers = entry match {
+							case Metadata(Some(headers), _) => headers.map(header => GenericHttpHeader(header.header, header.value)).toList
+							case _ => Nil
 						}
+						ctx.complete(StatusCodes.OK, headers, bytes)
 					}
 					case None => {
 						// TODO: Allow a default response if its invalid
