@@ -31,10 +31,14 @@ case class Param(val key : String, val value : String)
 
 object MetadataFileDirectory {
 	private val Pattern = "(.*)\\.metadata$".r
+	
 	def findReturnName(metaFilename : String, folder : File) : String = metaFilename match {
 		case Pattern(c) => {
-			val returnFiles = folder.listFiles.filter(file => file.getName.startsWith(c) && !file.getName.endsWith(".metadata")).map(_.getPath)
-			assert(returnFiles.size == 1, "Invalid number of files to return, found " + returnFiles + ". Ensure each metadata file only has one associated file")
+			def isValid(file:File) = file.getName.startsWith(c) && !file.getName.endsWith(".metadata")
+			
+			val returnFiles = folder.listFiles.filter(isValid).map(_.getPath)
+			assert(returnFiles.size == 1, "Invalid number of files to return, found " + returnFiles + 
+					". Ensure each metadata file only has one associated file")
 			returnFiles.head
 		}
 		case _ => throw new RuntimeException("Failed to find file for metadata file " + metaFilename)
