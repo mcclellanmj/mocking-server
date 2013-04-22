@@ -1,1 +1,5 @@
-secondfile = metadata
+{
+	"query": [
+		{"key" : "secondfile", "value" : "metadata"}
+	]
+}

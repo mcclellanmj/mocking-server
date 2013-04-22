@@ -1,9 +1,5 @@
 {
-	"headers": [
-		{"filename" : "file1.empty"},
-		{"status" : "200"}
-	],
 	"query": [
-		{"file1" : "123"}
+		{"key" : "firstfile", "value" : "123"}
 	]
 }

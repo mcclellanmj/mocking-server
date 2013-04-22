@@ -23,6 +23,11 @@ import scala.collection.mutable.MapBuilder
 import java.io.FileInputStream
 import java.io.BufferedInputStream
 import spray.httpx.marshalling.BasicMarshallers
+import net.liftweb.json.parse
+import net.liftweb.json.DefaultFormats
+
+case class Header(val header : String, val value : String)
+case class Param(val key : String, val value : String)
 
 object MetadataFileDirectory {
 	private val Pattern = "(.*)\\.metadata$".r
@@ -37,15 +42,16 @@ object MetadataFileDirectory {
 }
 
 class MetadataFileDirectory(val path : File) {
+	implicit val formats = DefaultFormats
+	
 	lazy val metadataFiles = path.listFiles().filter(_.getName().endsWith(".metadata")).map(file => {
-		(MetadataFileDirectory.findReturnName(file.getName(), path),
-			Source.fromFile(file).getLines.map(line => line.split("=", 2).toList match {
-				case key :: value :: Nil => (key.trim, value.trim)
-				case key :: Nil => throw new RuntimeException("Missing value for key " + key)
-				case key :: value :: rs => throw new RuntimeException("Parse of metadata failed, had too many values found for " +
-					"key %s, value %s, others %s".format(key, value, rs))
-				case Nil => throw new RuntimeException("Parse of metadata failed, had an empty list after splitting on '='")
-			}).toMap)
+		(MetadataFileDirectory.findReturnName(file.getName(), path), {
+				val json = parse(Source.fromFile(file).getLines.mkString(""))
+				val headers = (json \ "headers").extractOpt[Set[Header]]
+				val queryParams = (json \ "query").extract[Set[Param]]
+				assert(!queryParams.isEmpty, "No query parameters for " + path.getPath())
+				queryParams.map(param => (param.key, param.value))
+			}.toMap)
 	}).toMap
 }
 

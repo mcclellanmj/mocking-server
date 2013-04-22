@@ -1,1 +1,5 @@
-firstfile=123
+{
+	"query": [
+		{"key" : "firstfile", "value" : "123"}
+	]
+}
