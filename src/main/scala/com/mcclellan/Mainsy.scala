@@ -17,6 +17,31 @@ import spray.httpx.marshalling.MetaMarshallers
 import spray.httpx.marshalling.Marshaller
 import spray.http.ContentType
 import spray.http.HttpEntity
+import java.io.File
+import scala.io.Source
+import scala.collection.mutable.MapBuilder
+
+class FileAttributes {
+	private val builder = new MapBuilder[String, String, Map[String, String]](Map())
+	def addLine(line : String) = {
+		val List(key : String, value : String, rs) = line.split("=", 1).toList
+		assert(rs.isEmpty(), "Error, splitting line yielded more than one value. " +
+				"key = %s, value = %s, remaining = %s".format(key, value, rs))
+		builder += ((key, value))
+	}
+}
+
+class Files {
+	val metadataFiles = new File("~/MockImages/").listFiles().filter(_.getName().endsWith(".metadata"))
+	
+	metadataFiles.map(file => {
+		val attributes = new FileAttributes
+		Source.fromFile(file).getLines.foreach(line => {
+			attributes.addLine(line)
+		})
+		attributes
+	})
+}
 
 class Service extends Actor with HttpService {
 	lazy val fibs : Stream[BigInt] =0 #::
