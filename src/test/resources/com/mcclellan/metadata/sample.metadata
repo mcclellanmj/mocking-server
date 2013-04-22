@@ -1,0 +1,11 @@
+{
+	"headers": [
+		{"header": "Content-Disposition", "value": "attachment; filename=file1.pdf"},
+		{"header": "Server", "value": "mock-server"}
+	],
+	"query": [
+		{"key": "Org", "value": "0062"},
+		{"key": "Acct", "value": "29342201"},
+		{"key": "ImageOnly", "value": "Y"}
+	]
+}

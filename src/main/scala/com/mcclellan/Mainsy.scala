@@ -23,13 +23,28 @@ import scala.collection.mutable.MapBuilder
 import java.io.FileInputStream
 import java.io.BufferedInputStream
 import spray.httpx.marshalling.BasicMarshallers
+import net.liftweb.json.parse
+import net.liftweb.json.DefaultFormats
+import spray.http.HttpHeader
+
+case class Header(val header : String, val value : String)
+case class Param(val key : String, val value : String)
+case class Metadata(val header : Option[Set[Header]], val queryParams : Map[String, String])
+
+case class GenericHttpHeader(val name : String, val value : String) extends HttpHeader {
+  def lowercaseName: String = name.toLowerCase()
+}
 
 object MetadataFileDirectory {
 	private val Pattern = "(.*)\\.metadata$".r
+	
 	def findReturnName(metaFilename : String, folder : File) : String = metaFilename match {
 		case Pattern(c) => {
-			val returnFiles = folder.listFiles.filter(file => file.getName.startsWith(c) && !file.getName.endsWith(".metadata")).map(_.getPath)
-			assert(returnFiles.size == 1, "Invalid number of files to return, found " + returnFiles + ". Ensure each metadata file only has one associated file")
+			def isValid(file:File) = file.getName.startsWith(c) && !file.getName.endsWith(".metadata")
+			
+			val returnFiles = folder.listFiles.filter(isValid).map(_.getPath)
+			assert(returnFiles.size == 1, "Invalid number of files to return, found " + returnFiles + 
+					". Ensure each metadata file only has one associated file")
 			returnFiles.head
 		}
 		case _ => throw new RuntimeException("Failed to find file for metadata file " + metaFilename)
@@ -37,15 +52,16 @@ object MetadataFileDirectory {
 }
 
 class MetadataFileDirectory(val path : File) {
+	implicit val formats = DefaultFormats
+	
 	lazy val metadataFiles = path.listFiles().filter(_.getName().endsWith(".metadata")).map(file => {
-		(MetadataFileDirectory.findReturnName(file.getName(), path),
-			Source.fromFile(file).getLines.map(line => line.split("=", 2).toList match {
-				case key :: value :: Nil => (key.trim, value.trim)
-				case key :: Nil => throw new RuntimeException("Missing value for key " + key)
-				case key :: value :: rs => throw new RuntimeException("Parse of metadata failed, had too many values found for " +
-					"key %s, value %s, others %s".format(key, value, rs))
-				case Nil => throw new RuntimeException("Parse of metadata failed, had an empty list after splitting on '='")
-			}).toMap)
+		(MetadataFileDirectory.findReturnName(file.getName(), path), {
+				val json = parse(Source.fromFile(file).getLines.mkString(""))
+				val headers = (json \ "headers").extractOpt[Set[Header]]
+				val queryParams = (json \ "query").extract[Set[Param]]
+				assert(!queryParams.isEmpty, "No query parameters for " + path.getPath())
+				Metadata(headers, queryParams.map(param => (param.key, param.value)).toMap)
+			})
 	}).toMap
 }
 
@@ -61,15 +77,26 @@ class Service extends Actor with HttpService {
 		get {
 			path("ping") { ctx =>
 				val params = ctx.request.queryParams.toSet
-				metadataMaps.find(entry => {
-					val intersection = (entry._2.toSet intersect params)
-					intersection.size == entry._2.size && intersection.size == params.size 
+				// FIXME: Getting messy, this needs to be broken up
+				metadataMaps.find(entry => entry match {
+					case (key, Metadata(headers, query)) => {
+						val intersection = (query.toSet intersect params)
+						intersection.size == query.toSet.size && intersection.size == params.size
+					}
 				}) match {
-					case Some((key, map)) => {
+					case Some((key, entry)) => {
+						// TODO: Should eventually be a chunked stream response
 						val bis = new BufferedInputStream(new FileInputStream(key))
-						ctx.complete(StatusCodes.OK, HttpHeaders.`Content-Disposition`("inline", Map("filename" -> key)) :: Nil, Stream.continually(bis.read).takeWhile(_ != -1).map(_.toByte).toArray)
+						val bytes = Stream.continually(bis.read).takeWhile(_ != -1).map(_.toByte).toArray
+						
+						val headers = entry match {
+							case Metadata(Some(headers), _) => headers.map(header => GenericHttpHeader(header.header, header.value)).toList
+							case _ => Nil
+						}
+						ctx.complete(StatusCodes.OK, headers, bytes)
 					}
 					case None => {
+						// TODO: Allow a default response if its invalid
 						println("No mapping for " + params)
 						ctx.complete(StatusCodes.NotFound, Nil, "")
 					}
@@ -84,6 +111,7 @@ class Service extends Actor with HttpService {
 }
 
 object Mainsy extends App with SprayCanHttpServerApp {
+	// TODO: Allow port to be set via commandline
 	val me = system.actorOf(Props[Service])
 	newHttpServer(me) ! Bind(interface = "localhost", port = 8888)
 }
