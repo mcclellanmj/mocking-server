@@ -28,6 +28,7 @@ import net.liftweb.json.DefaultFormats
 
 case class Header(val header : String, val value : String)
 case class Param(val key : String, val value : String)
+case class Metadata(val header : Set[Header], val queryParams : Map[String, String])
 
 object MetadataFileDirectory {
 	private val Pattern = "(.*)\\.metadata$".r
@@ -50,7 +51,10 @@ class MetadataFileDirectory(val path : File) {
 	
 	lazy val metadataFiles = path.listFiles().filter(_.getName().endsWith(".metadata")).map(file => {
 		(MetadataFileDirectory.findReturnName(file.getName(), path), {
+				// TODO : Create Metadata type instead of losing the headers
 				val json = parse(Source.fromFile(file).getLines.mkString(""))
+				
+				// TODO: Convert headers to response headers
 				val headers = (json \ "headers").extractOpt[Set[Header]]
 				val queryParams = (json \ "query").extract[Set[Param]]
 				assert(!queryParams.isEmpty, "No query parameters for " + path.getPath())
@@ -72,14 +76,17 @@ class Service extends Actor with HttpService {
 			path("ping") { ctx =>
 				val params = ctx.request.queryParams.toSet
 				metadataMaps.find(entry => {
+					// FIXME: Probably a better way to figure out if the maps are equal
 					val intersection = (entry._2.toSet intersect params)
 					intersection.size == entry._2.size && intersection.size == params.size 
 				}) match {
 					case Some((key, map)) => {
+						// TODO: Should eventually be a chunked stream response
 						val bis = new BufferedInputStream(new FileInputStream(key))
 						ctx.complete(StatusCodes.OK, HttpHeaders.`Content-Disposition`("inline", Map("filename" -> key)) :: Nil, Stream.continually(bis.read).takeWhile(_ != -1).map(_.toByte).toArray)
 					}
 					case None => {
+						// TODO: Allow a default response if its invalid
 						println("No mapping for " + params)
 						ctx.complete(StatusCodes.NotFound, Nil, "")
 					}
@@ -94,6 +101,7 @@ class Service extends Actor with HttpService {
 }
 
 object Mainsy extends App with SprayCanHttpServerApp {
+	// TODO: Allow port to be set via commandline
 	val me = system.actorOf(Props[Service])
 	newHttpServer(me) ! Bind(interface = "localhost", port = 8888)
 }
