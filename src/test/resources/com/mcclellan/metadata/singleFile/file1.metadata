@@ -1,9 +1,3 @@
 {
-	"headers": [
-		{"header" : "filename", "value" : "file1.pdf"},
-		{"header" : "status", "value" : "200"}
-	],
-	"query": [
-		{"key" : "123", "value" : "abc"}
-	]
+	"query": {"secondfile" : "metadata"}
 }

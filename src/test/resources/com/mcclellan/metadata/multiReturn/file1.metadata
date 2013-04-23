@@ -1,5 +1,3 @@
 {
-	"query": [
-		{"key" : "firstfile", "value" : "123"}
-	]
+	"query": {"secondfile" : "metadata"}
 }
